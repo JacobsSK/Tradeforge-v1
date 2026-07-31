@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TradeForge — Signal Engine + Paper Trading</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Archivo:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0E11; --panel:#12161B; --panel2:#171C23; --line:#232B34;
+    --ink:#DDE4EA; --dim:#7C8A97; --faint:#4A5560;
+    --accent:#31D08C;        /* tape green — TradeForge's single accent */
+    --accent-dim:#1E7A54;
+    --loss:#E05252;          /* semantic only: losses, stops, lockouts */
+    --warn:#D9A441;
+    --mono:'IBM Plex Mono',monospace; --disp:'Archivo',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--disp);font-size:14px;padding-top:38px}
+  ::selection{background:var(--accent-dim);color:#fff}
+
+  /* ---- un-skippable paper banner ---- */
+  #paperBanner{
+    position:fixed;top:0;left:0;right:0;height:38px;z-index:1000;
+    display:flex;align-items:center;justify-content:center;gap:12px;
+    font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.18em;
+    color:#0B0E11;background:repeating-linear-gradient(-45deg,var(--accent) 0 18px,#28B378 18px 36px);
+  }
+  #paperBanner .dot{width:8px;height:8px;border-radius:50%;background:#0B0E11;animation:blink 1.6s infinite}
+  @keyframes blink{50%{opacity:.25}}
+  @media (prefers-reduced-motion:reduce){#paperBanner .dot{animation:none}}
+
+  header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;
+    padding:20px 28px;border-bottom:1px solid var(--line)}
+  .wordmark{font-family:var(--disp);font-weight:900;font-size:22px;letter-spacing:-.02em}
+  .wordmark span{color:var(--accent)}
+  .wordmark small{display:block;font-family:var(--mono);font-weight:400;font-size:10px;color:var(--dim);letter-spacing:.14em;margin-top:2px}
+  .fx{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--dim)}
+  .fx input{width:70px}
+  .toggle{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .toggle button{background:transparent;border:0;color:var(--dim);font-family:var(--mono);font-size:12px;padding:6px 12px;cursor:pointer}
+  .toggle button.on{background:var(--accent);color:#0B0E11;font-weight:600}
+
+  nav{display:flex;gap:2px;padding:0 28px;border-bottom:1px solid var(--line);overflow-x:auto}
+  nav button{background:transparent;border:0;border-bottom:2px solid transparent;color:var(--dim);
+    font-family:var(--mono);font-size:12px;letter-spacing:.06em;padding:12px 16px;cursor:pointer;white-space:nowrap}
+  nav button.on{color:var(--accent);border-bottom-color:var(--accent)}
+  nav button:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  main{padding:24px 28px;max-width:1280px;margin:0 auto}
+  h2{font-size:16px;font-weight:700;margin-bottom:14px}
+  h3{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;margin-bottom:10px}
+  .grid{display:grid;gap:14px}
+  .cards{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+  .card .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase}
+  .card .v{font-family:var(--mono);font-size:20px;font-weight:600;margin-top:6px}
+  .card .s{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:2px}
+  .pos{color:var(--accent)} .neg{color:var(--loss)} .warnc{color:var(--warn)}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px;margin-top:16px}
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .row>.panel{flex:1;min-width:300px;margin-top:16px}
+
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+  th{text-align:left;color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    padding:8px 10px;border-bottom:1px solid var(--line)}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  .empty{color:var(--faint);font-family:var(--mono);font-size:12px;padding:18px 4px}
+
+  .badge{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.08em;padding:2px 8px;border-radius:4px;border:1px solid var(--line);color:var(--dim)}
+  .badge.buy{color:var(--accent);border-color:var(--accent-dim)}
+  .badge.sell{color:var(--loss);border-color:#6b2f2f}
+  .badge.locked{color:var(--loss);border-color:var(--loss)}
+  .badge.openw{color:var(--accent);border-color:var(--accent-dim)}
+
+  label{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--dim);text-transform:uppercase;margin-bottom:4px}
+  input,select{background:var(--panel2);border:1px solid var(--line);border-radius:6px;color:var(--ink);
+    font-family:var(--mono);font-size:13px;padding:8px 10px;width:100%}
+  .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .btn{background:var(--accent);border:0;border-radius:6px;color:#0B0E11;font-family:var(--mono);
+    font-size:12px;font-weight:600;letter-spacing:.06em;padding:9px 16px;cursor:pointer}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
+  .btn.danger{background:transparent;border:1px solid var(--loss);color:var(--loss)}
+  .btn.sm{padding:4px 10px;font-size:11px}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .hint{font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.6;margin-top:8px}
+  .hint code,.codeblock{color:var(--accent)}
+  .codeblock{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:12px;
+    font-family:var(--mono);font-size:11px;line-height:1.55;white-space:pre;overflow-x:auto;color:var(--ink)}
+  .jflag{color:var(--warn);font-family:var(--mono);font-size:10px;letter-spacing:.08em}
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--panel2);border:1px solid var(--accent);
+    border-radius:8px;padding:12px 16px;font-family:var(--mono);font-size:12px;z-index:1100;display:none}
+  .curve{width:100%;height:180px;display:block}
+  .lockcard{border:1px solid var(--loss);background:#1a1113;border-radius:8px;padding:14px 16px;
+    font-family:var(--mono);font-size:12px;color:var(--loss);letter-spacing:.06em}
+  .okcard{border:1px solid var(--accent-dim);background:#0f1a15;border-radius:8px;padding:14px 16px;
+    font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.06em}
+  .reason{font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.6;border-left:2px solid var(--line);
+    padding:6px 0 6px 12px;margin-bottom:10px}
+  .reason b{color:var(--ink)}
+  @media(max-width:640px){main{padding:16px}header{padding:14px 16px}nav{padding:0 8px}}
+</style>
+</head>
+<body>
+
+<div id="paperBanner" role="status" aria-live="polite">
+  <span class="dot"></span> PAPER&nbsp;MODE&nbsp;— NO&nbsp;REAL&nbsp;MONEY&nbsp;AT&nbsp;RISK — LIVE&nbsp;EXECUTION&nbsp;NOT&nbsp;WIRED <span class="dot"></span>
+</div>
+
+<header>
+  <div class="wordmark">Trade<span>Forge</span><small>SMC SIGNAL ENGINE · PAPER DESK · v1</small></div>
+  <div class="fx">
+    <div class="toggle" id="ccyToggle">
+      <button data-ccy="USD" class="on">USD</button>
+      <button data-ccy="ZAR">ZAR</button>
+    </div>
+    <span>USD→ZAR</span>
+    <input id="fxRate" type="number" step="0.01" min="0.01" value="18.50" aria-label="USD to ZAR exchange rate">
+    <button class="btn sm ghost" onclick="saveFx()">Save</button>
+  </div>
+</header>
+
+<nav id="tabs">
+  <button data-tab="overview" class="on">OVERVIEW</button>
+  <button data-tab="scalp">SCALP</button>
+  <button data-tab="day">DAY</button>
+  <button data-tab="swing">SWING</button>
+  <button data-tab="gold_session">GOLD SESSION</button>
+  <button data-tab="engine">ENGINE TUNING</button>
+  <button data-tab="wiring">SIGNALS &amp; WIRING</button>
+</nav>
+
+<main id="main"><div class="empty">Connecting to TradeForge server…</div></main>
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================================
+// TradeForge dashboard — polls /api/state; proxy-first with health detection.
+// ============================================================================
+let S = null;                // server state snapshot
+let ccy = "USD";
+let tab = "overview";
+const MODES = ["scalp","day","swing","gold_session"];
+
+const $ = (s)=>document.querySelector(s);
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.style.display="block"; setTimeout(()=>t.style.display="none",2600); }
+
+function money(usd, dp=2){
+  if(usd==null||isNaN(usd)) return "—";
+  const v = ccy==="ZAR" ? usd*(S?.exchangeRate||18.5) : usd;
+  const sym = ccy==="ZAR" ? "R" : "$";
+  return sym + v.toLocaleString("en-US",{minimumFractionDigits:dp,maximumFractionDigits:dp});
+}
+function pct(v,dp=1){ return v==null?"—":v.toFixed(dp)+"%"; }
+function num(v,dp=2){ return v==null?"—":(+v).toFixed(dp); }
+function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function ts(iso){ return iso? new Date(iso).toLocaleString("en-ZA",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "—"; }
+
+async function api(path, opts={}){
+  const r = await fetch(path, Object.assign({headers:{"Content-Type":"application/json"}}, opts));
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok && r.status!==409 && r.status!==501) throw new Error(j.error||("HTTP "+r.status));
+  return {status:r.status, body:j};
+}
+
+async function refresh(){
+  try{
+    const {body} = await api("/api/state");
+    S = body;
+    render();
+  }catch(e){
+    $("#main").innerHTML = `<div class="panel"><div class="empty">Can't reach the server (${esc(e.message)}). If this is a Claude.ai preview, deploy to Railway to run the full desk — the signal engine and trade log live server-side.</div></div>`;
+  }
+}
+
+// ---------- SVG equity curve ----------
+function curveSvg(points){
+  if(!points || points.length<2) return `<div class="empty">No closed trades yet — the curve starts at your first close.</div>`;
+  const W=760,H=180,P=10;
+  const eqs = points.map(p=>p.equity);
+  const min=Math.min(...eqs), max=Math.max(...eqs);
+  const span = (max-min)||1;
+  const x=(i)=>P+(i/(points.length-1))*(W-2*P);
+  const y=(v)=>H-P-((v-min)/span)*(H-2*P);
+  const d = points.map((p,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(p.equity).toFixed(1)}`).join(" ");
+  const last = points[points.length-1].equity, first = points[0].equity;
+  const col = last>=first ? "var(--accent)" : "var(--loss)";
+  const base = y(first);
+  return `<svg class="curve" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Equity curve">
+    <line x1="${P}" y1="${base}" x2="${W-P}" y2="${base}" stroke="var(--line)" stroke-dasharray="4 4"/>
+    <path d="${d}" fill="none" stroke="${col}" stroke-width="2"/>
+    <text x="${W-P}" y="${y(last)-6}" text-anchor="end" font-family="IBM Plex Mono" font-size="11" fill="${col}">${money(last,0)}</text>
+  </svg>`;
+}
+
+// ---------- shared renderers ----------
+function statCards(m){
+  const st = S.modes[m].stats;
+  const dlCls = st.dailyLossLimitHit ? "neg" : (st.dailyPnl<0 ? "warnc" : "pos");
+  return `<div class="grid cards">
+    <div class="card"><div class="k">Paper equity</div><div class="v">${money(st.equity,0)}</div><div class="s">start ${money(S.modes[m].risk.startingEquity,0)}</div></div>
+    <div class="card"><div class="k">Win rate</div><div class="v">${pct(st.winRatePct)}</div><div class="s">${st.trades} closed · ${st.open} open</div></div>
+    <div class="card"><div class="k">Avg R:R achieved</div><div class="v">${num(st.avgRR)}</div><div class="s">per closed trade</div></div>
+    <div class="card"><div class="k">Max drawdown</div><div class="v">${pct(st.maxDrawdownPct)}</div><div class="s">peak-to-trough</div></div>
+    <div class="card"><div class="k">Today P&amp;L</div><div class="v ${dlCls}">${money(st.dailyPnl)}</div><div class="s">limit ${money(st.dailyLossLimit)}</div></div>
+    <div class="card"><div class="k">Trades today</div><div class="v ${st.tradesToday>=S.modes[m].risk.maxTradesPerDay?"neg":""}">${st.tradesToday}/${S.modes[m].risk.maxTradesPerDay}</div>
+      <div class="s">${st.dailyLossLimitHit?'<span class="neg">DAILY LOSS LIMIT HIT</span>':'within limits'}</div></div>
+  </div>`;
+}
+
+function tradeRows(trades, open){
+  if(!trades.length) return `<div class="empty">${open?"No open positions.":"No closed trades yet."}</div>`;
+  return `<div style="overflow-x:auto"><table><thead><tr>
+    <th>ID</th><th>Sym</th><th>Side</th><th>Entry</th><th>Stop</th>${open?"<th>Target</th><th>Size</th><th></th>":"<th>Exit</th><th>P&amp;L</th><th>R</th><th>Close</th>"}
+    <th>Rule</th><th>${open?"Opened":"Closed"}</th></tr></thead><tbody>` +
+    trades.map(t=>`<tr>
+      <td>${t.id}</td><td>${esc(t.symbol)}</td>
+      <td><span class="badge ${t.side}">${t.side.toUpperCase()}</span></td>
+      <td>${num(t.entry,5)}</td><td>${num(t.stop,5)}</td>
+      ${open
+        ? `<td>${num(t.target,5)}</td><td>${num(t.size,3)}</td>
+           <td><button class="btn sm danger" onclick="closeTrade('${t.id}')">Close</button></td>`
+        : `<td>${num(t.exit,5)}</td>
+           <td class="${t.pnl>=0?"pos":"neg"}">${money(t.pnl)}</td>
+           <td class="${t.rAchieved>=0?"pos":"neg"}">${num(t.rAchieved)}R</td>
+           <td>${esc(t.closeReason||"")}</td>`}
+      <td>${esc(t.rule||t.source)}</td><td>${ts(open?t.openedAt:t.closedAt)}</td>
+    </tr>`).join("") + `</tbody></table></div>`;
+}
+
+function riskForm(m){
+  const r = S.modes[m].risk;
+  const win = r.sessionWindow||{start:"",end:""};
+  return `<div class="panel"><h3>Risk settings — ${esc(S.modes[m].label)} (own engine, not shared)</h3>
+    <div class="fields">
+      <div><label>Starting equity (USD)</label><input id="r_${m}_startingEquity" type="number" value="${r.startingEquity}"></div>
+      <div><label>Risk per trade %</label><input id="r_${m}_riskPerTradePct" type="number" step="0.1" value="${r.riskPerTradePct}"></div>
+      <div><label>Max trades / day ${m==="gold_session"?'<span class="jflag">hard rule: 1</span>':''}</label>
+        <input id="r_${m}_maxTradesPerDay" type="number" value="${r.maxTradesPerDay}" ${m==="gold_session"?"disabled":""}></div>
+      <div><label>Max daily loss %</label><input id="r_${m}_maxDailyLossPct" type="number" step="0.1" value="${r.maxDailyLossPct}"></div>
+      <div><label>Window start (local)</label><input id="r_${m}_wstart" type="time" value="${win.start||""}"></div>
+      <div><label>Window end (local)</label><input id="r_${m}_wend" type="time" value="${win.end||""}"></div>
+      <div><label>UTC offset (min) — SAST=120</label><input id="r_${m}_tzOffsetMinutes" type="number" value="${r.tzOffsetMinutes}"></div>
+      <div><label>Mode enabled</label><select id="r_${m}_enabled"><option value="true"${r.enabled?" selected":""}>Yes</option><option value="false"${!r.enabled?" selected":""}>No</option></select></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn" onclick="saveRisk('${m}')">Save risk settings</button>
+      <button class="btn ghost" onclick="resetMode('${m}')">Reset ${esc(S.modes[m].label)} paper history</button>
+    </div>
+    <div class="hint">Leave both window fields blank for no session restriction. Sizing = (equity × risk%) ÷ stop distance.</div>
+  </div>`;
+}
+
+// ---------- views ----------
+function viewOverview(){
+  const perMode = MODES.map(m=>{
+    const st = S.modes[m].stats;
+    return `<div class="card">
+      <div class="k">${esc(S.modes[m].label)} <span style="color:var(--faint)">· ${esc(S.modes[m].timeframes)}</span></div>
+      <div class="v ${st.equity>=S.modes[m].risk.startingEquity?"pos":"neg"}">${money(st.equity,0)}</div>
+      <div class="s">WR ${pct(st.winRatePct)} · avg ${num(st.avgRR)}R · DD ${pct(st.maxDrawdownPct)} · today ${money(st.dailyPnl,0)}
+      ${st.dailyLossLimitHit?'<span class="neg"> · LOSS LIMIT</span>':""}</div>
+    </div>`;
+  }).join("");
+  const sig = S.signalLog.slice(0,25);
+  return `
+    <div class="panel"><h3>Combined paper equity — all modes</h3>${curveSvg(S.combinedCurve)}</div>
+    <div class="grid cards" style="margin-top:16px">${perMode}</div>
+    <div class="panel"><h3>Signal feed — every intake and gate decision</h3>
+      ${sig.length? `<div style="overflow-x:auto"><table><thead><tr><th>Time</th><th>Mode</th><th>Sym</th><th>Side</th><th>Source</th><th>Gate</th><th>Detail</th></tr></thead><tbody>`+
+        sig.map(s=>`<tr><td>${ts(s.at)}</td><td>${esc(s.mode)}</td><td>${esc(s.symbol)}</td>
+          <td><span class="badge ${s.side}">${esc((s.side||"").toUpperCase())}</span></td><td>${esc(s.source)}</td>
+          <td class="${s.accepted?"pos":"neg"}">${s.accepted?"ACCEPTED "+(s.tradeId||""):"REJECTED"}</td>
+          <td style="color:var(--dim)">${esc((s.reasons||[]).join("; "))||esc(s.rule||"")}</td></tr>`).join("")+
+        `</tbody></table></div>` : `<div class="empty">No signals yet. Point a TradingView alert at /webhook/tradingview or feed candles to the internal engine — see Signals &amp; Wiring.</div>`}
+    </div>`;
+}
+
+function viewMode(m){
+  const open = S.openTrades.filter(t=>t.mode===m);
+  const closed = S.closedTrades.filter(t=>t.mode===m).slice().reverse();
+  let extra = "";
+  if(m==="gold_session"){
+    const st = S.modes[m].stats, r = S.modes[m].risk;
+    const locked = st.tradesToday >= r.maxTradesPerDay;
+    extra = `
+    <div class="panel"><h3>One-trade-per-day lockout</h3>
+      ${locked
+        ? `<div class="lockcard">■ LOCKED — today's single trade is used (${st.tradesToday}/${r.maxTradesPerDay}). Engine refuses all further entries until tomorrow's ${esc(r.sessionWindow?.start||"")} window.</div>`
+        : S.modes[m].inWindow
+          ? `<div class="okcard">● WINDOW OPEN ${esc(r.sessionWindow?.start||"")}–${esc(r.sessionWindow?.end||"")} — one entry available.</div>`
+          : `<div class="okcard" style="color:var(--dim);border-color:var(--line)">○ Window closed. Opens ${esc(r.sessionWindow?.start||"")}–${esc(r.sessionWindow?.end||"")} (UTC${r.tzOffsetMinutes>=0?"+":""}${r.tzOffsetMinutes/60}). No entries accepted outside it.</div>`}
+      <h3 style="margin-top:16px">Signal reasoning log — review &amp; refine the rule</h3>
+      ${S.goldReasoningLog.length? S.goldReasoningLog.map(g=>`<div class="reason">
+          <b>${ts(g.at)} · ${esc(g.symbol||"")} ${esc((g.side||"").toUpperCase())} ${g.tradeId?("· "+g.tradeId):""}</b><br>${esc(g.reasoning)}</div>`).join("")
+        : `<div class="empty">No gold-session signals logged yet. Every accepted AND rejected signal lands here with its full reasoning.</div>`}
+    </div>`;
+  }
+  return `
+    ${statCards(m)}
+    <div class="panel"><h3>Equity curve — ${esc(S.modes[m].label)}</h3>${curveSvg(S.curves[m])}</div>
+    ${extra}
+    <div class="panel"><h3>Open positions</h3>${tradeRows(open,true)}</div>
+    <div class="panel"><h3>Closed trades</h3>${tradeRows(closed,false)}</div>
+    ${riskForm(m)}`;
+}
+
+function viewEngine(){
+  const e = S.engine;
+  const opt=(v,cur)=>`<option value="${v}"${v===cur?" selected":""}>${v}</option>`;
+  return `
+  <div class="panel"><h3>BOS + Retest engine — every field is a tunable judgment call</h3>
+    <div class="fields">
+      <div><label>Lookback bars (block scan) <span class="jflag">J1</span></label><input id="e_lookback" type="number" value="${e.lookback}"></div>
+      <div><label>Min touches per edge <span class="jflag">J1</span></label><input id="e_minTouches" type="number" value="${e.minTouches}"></div>
+      <div><label>Touch tolerance (% of range) <span class="jflag">J1</span></label><input id="e_touchTolerancePct" type="number" step="1" value="${e.touchTolerancePct}"></div>
+      <div><label>Max range height (% of price) <span class="jflag">J1</span></label><input id="e_maxRangeHeightPct" type="number" step="0.1" value="${e.maxRangeHeightPct}"></div>
+      <div><label>Break buffer (% of range) <span class="jflag">J2</span></label><input id="e_breakBufferPct" type="number" step="1" value="${e.breakBufferPct}"></div>
+      <div><label>Retest tolerance (% of range) <span class="jflag">J3</span></label><input id="e_retestTolerancePct" type="number" step="1" value="${e.retestTolerancePct}"></div>
+      <div><label>Max bars to retest <span class="jflag">J3</span></label><input id="e_maxBarsToRetest" type="number" value="${e.maxBarsToRetest}"></div>
+      <div><label>Confirmation candle <span class="jflag">J4</span></label>
+        <select id="e_confirmation">${opt("close_direction",e.confirmation)}${opt("engulfing",e.confirmation)}${opt("rejection_wick",e.confirmation)}</select></div>
+      <div><label>Stop placement <span class="jflag">J5</span></label>
+        <select id="e_stopPlacement">${opt("retest_candle",e.stopPlacement)}${opt("block_far_edge",e.stopPlacement)}</select></div>
+      <div><label>Stop buffer (% of range) <span class="jflag">J5</span></label><input id="e_stopBufferPct" type="number" step="1" value="${e.stopBufferPct}"></div>
+      <div><label>Target R multiple</label><input id="e_targetRR" type="number" step="0.1" value="${e.targetRR}"></div>
+    </div>
+    <div style="margin-top:12px"><button class="btn" onclick="saveEngine()">Save engine config</button></div>
+    <div class="hint">
+      J1 — a "block" = highest high / lowest low over the lookback, valid only if tight (max height) and each edge was tested ≥ min touches.<br>
+      J2 — breaks count on CLOSE beyond the edge + buffer; wick pokes count as touches, not breaks.<br>
+      J3 — a retest = price back within tolerance of the broken edge; a CLOSE back through it by more than tolerance kills the setup.<br>
+      J4 — three confirmation definitions; pick the one that matches how you read the retest candle.<br>
+      J5 — stop behind the retest candle (tight) or the block's far edge (roomy), plus buffer. Conservative fill rule: if one candle spans both stop and target, the stop is assumed hit first.
+    </div>
+  </div>
+  <div class="panel"><h3>Engine state machines</h3>
+    ${Object.keys(S.engineStates).length
+      ? `<table><thead><tr><th>Mode : Symbol</th><th>Phase</th><th>Detail</th></tr></thead><tbody>`+
+        Object.entries(S.engineStates).map(([k,v])=>`<tr><td>${esc(k)}</td>
+          <td><span class="badge ${v.phase==="BROKEN"?"openw":""}">${esc(v.phase)}</span></td>
+          <td style="color:var(--dim)">${v.direction?`broke ${esc(v.direction)} @ ${num(v.level,5)}, ${v.barsSinceBreak} bars ago`:""} ${esc(v.note||"")}</td></tr>`).join("")+
+        `</tbody></table>`
+      : `<div class="empty">No symbols being tracked yet. POST candles to /api/candles to start the scanner.</div>`}
+  </div>
+  <div class="panel"><h3>AI review of today's setups (optional — never in the execution path)</h3>
+    <button class="btn ghost" onclick="aiReview()">Ask Claude to review today's signals &amp; gates</button>
+    <div id="aiOut" class="hint" style="white-space:pre-wrap"></div>
+  </div>`;
+}
+
+function viewWiring(){
+  const host = location.origin;
+  return `
+  <div class="panel"><h3>1 · TradingView webhook (primary signal source)</h3>
+    <div class="hint">Alert → Notifications → Webhook URL:</div>
+    <div class="codeblock" style="margin:8px 0">${esc(host)}/webhook/tradingview</div>
+    <div class="hint">Alert message (JSON). Set <code>WEBHOOK_SECRET</code> in Railway and match it here:</div>
+    <div class="codeblock" id="whTpl">{
+  "secret": "YOUR_WEBHOOK_SECRET",
+  "mode": "day",
+  "symbol": "{{ticker}}",
+  "side": "buy",
+  "entry": {{close}},
+  "stop": 2315.5,
+  "target": 2340.0,
+  "reasoning": "15m BOS retest, London/NY overlap"
+}</div>
+    <button class="btn sm ghost" style="margin-top:8px" onclick="copyEl('whTpl')">Copy template</button>
+    <div class="hint">mode: <code>scalp</code> · <code>day</code> · <code>swing</code> · <code>gold_session</code>. Stop is required — position size is derived from it. Every signal passes the mode's own risk gate; rejections show in the signal feed with reasons.</div>
+  </div>
+
+  <div class="panel"><h3>2 · Internal engine feed (candles)</h3>
+    <div class="hint">POST bar-close candles from any feed (n8n/Make cron → Twelve Data, broker REST, or replayed history for tuning):</div>
+    <div class="codeblock" id="cdTpl">POST ${esc(host)}/api/candles
+{
+  "mode": "day",
+  "symbol": "XAUUSD",
+  "candles": [
+    { "time": "2026-07-07T14:00:00Z", "open": 2318.2, "high": 2321.0, "low": 2316.9, "close": 2320.4 }
+  ]
+}</div>
+    <button class="btn sm ghost" style="margin-top:8px" onclick="copyEl('cdTpl')">Copy template</button>
+    <div class="hint">Candles also drive stop/target checks on open trades. A bare tick works too: <code>POST /api/price {"symbol":"XAUUSD","price":2319.8}</code></div>
+  </div>
+
+  <div class="panel"><h3>3 · Manual paper signal (testing)</h3>
+    <div class="fields">
+      <div><label>Mode</label><select id="ms_mode">${MODES.map(m=>`<option value="${m}">${esc(S.modes[m].label)}</option>`).join("")}</select></div>
+      <div><label>Symbol</label><input id="ms_symbol" placeholder="XAUUSD"></div>
+      <div><label>Side</label><select id="ms_side"><option>buy</option><option>sell</option></select></div>
+      <div><label>Entry</label><input id="ms_entry" type="number" step="any"></div>
+      <div><label>Stop</label><input id="ms_stop" type="number" step="any"></div>
+      <div><label>Target (optional)</label><input id="ms_target" type="number" step="any"></div>
+    </div>
+    <div style="margin-top:10px"><label>Reasoning (logged — required habit for gold session)</label><input id="ms_reason" placeholder="Why this trade?"></div>
+    <div style="margin-top:12px"><button class="btn" onclick="manualSignal()">Send through the pipeline</button></div>
+  </div>
+
+  <div class="panel"><h3>4 · Live execution — stubbed, off by design</h3>
+    <div class="hint">Broker endpoints exist but return 501 until you wire them (instructions are commented in <code>server.js</code>). Nothing in this build can place a real order. Prove the rules on paper first.</div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn ghost" onclick="probeStub('oanda')">Probe OANDA stub</button>
+      <button class="btn ghost" onclick="probeStub('deriv')">Probe Deriv stub</button>
+    </div>
+    <div id="stubOut" class="hint"></div>
+  </div>`;
+}
+
+// ---------- render ----------
+function render(){
+  if(!S) return;
+  $("#fxRate").value = S.exchangeRate;
+  let html = "";
+  if(tab==="overview") html = viewOverview();
+  else if(MODES.includes(tab)) html = viewMode(tab);
+  else if(tab==="engine") html = viewEngine();
+  else if(tab==="wiring") html = viewWiring();
+  $("#main").innerHTML = html;
+}
+
+// ---------- actions ----------
+async function saveFx(){
+  await api("/api/config",{method:"POST",body:JSON.stringify({exchangeRate:+$("#fxRate").value})});
+  toast("Exchange rate saved"); refresh();
+}
+async function saveRisk(m){
+  const g=(id)=>document.getElementById(`r_${m}_${id}`);
+  const ws=g("wstart").value, we=g("wend").value;
+  const risk={
+    startingEquity:+g("startingEquity").value,
+    riskPerTradePct:+g("riskPerTradePct").value,
+    maxTradesPerDay: m==="gold_session"?1:+g("maxTradesPerDay").value,
+    maxDailyLossPct:+g("maxDailyLossPct").value,
+    tzOffsetMinutes:+g("tzOffsetMinutes").value,
+    enabled: g("enabled").value==="true",
+    sessionWindow: (ws&&we)?{start:ws,end:we}:null,
+  };
+  await api("/api/config",{method:"POST",body:JSON.stringify({modes:{[m]:{risk}}})});
+  toast("Risk settings saved"); refresh();
+}
+async function saveEngine(){
+  const g=(id)=>document.getElementById("e_"+id);
+  const engine={
+    lookback:+g("lookback").value, minTouches:+g("minTouches").value,
+    touchTolerancePct:+g("touchTolerancePct").value, maxRangeHeightPct:+g("maxRangeHeightPct").value,
+    breakBufferPct:+g("breakBufferPct").value, retestTolerancePct:+g("retestTolerancePct").value,
+    maxBarsToRetest:+g("maxBarsToRetest").value, confirmation:g("confirmation").value,
+    stopPlacement:g("stopPlacement").value, stopBufferPct:+g("stopBufferPct").value,
+    targetRR:+g("targetRR").value,
+  };
+  await api("/api/config",{method:"POST",body:JSON.stringify({engine})});
+  toast("Engine config saved"); refresh();
+}
+async function closeTrade(id){
+  const price = prompt("Close price for "+id+":");
+  if(price==null) return;
+  const {status,body} = await api(`/api/trades/${id}/close`,{method:"POST",body:JSON.stringify({price:+price})});
+  toast(status===200?`${id} closed`:(body.error||"Close failed")); refresh();
+}
+async function resetMode(m){
+  if(!confirm(`Reset all ${m} paper history? Config is kept.`)) return;
+  await api(`/api/reset/${m}`,{method:"POST"}); toast("History reset"); refresh();
+}
+async function manualSignal(){
+  const g=(id)=>document.getElementById(id);
+  const payload={mode:g("ms_mode").value,symbol:g("ms_symbol").value,side:g("ms_side").value,
+    entry:+g("ms_entry").value,stop:+g("ms_stop").value,
+    target:g("ms_target").value?+g("ms_target").value:null,reasoning:g("ms_reason").value||null};
+  const {status,body}=await api("/api/signal/manual",{method:"POST",body:JSON.stringify(payload)});
+  toast(status===200?`Accepted → ${body.trade.id}`:`Rejected: ${(body.reasons||[]).join("; ")}`);
+  refresh();
+}
+async function probeStub(broker){
+  const {status,body}=await api(`/api/live/${broker}/order`,{method:"POST",body:"{}"});
+  $("#stubOut").textContent=`HTTP ${status} — ${body.error||""} (${body.wiring||""})`;
+}
+async function aiReview(){
+  const out=$("#aiOut"); out.textContent="Thinking…";
+  try{
+    const digest={signals:S.signalLog.slice(0,30),openTrades:S.openTrades,
+      todaysStats:Object.fromEntries(MODES.map(m=>[m,S.modes[m].stats])),engine:S.engine};
+    const {status,body}=await api("/api/claude",{method:"POST",body:JSON.stringify({
+      system:"You are a trading journal reviewer. Analyze rule adherence, gate rejections, and R:R quality. Never predict future prices or promise profitability. Be concise and concrete.",
+      messages:[{role:"user",content:"Review today's paper trading activity and rule adherence:\n"+JSON.stringify(digest)}],
+      max_tokens:1200})});
+    if(status===503){ out.textContent=body.error; return; }
+    out.textContent=(body.content||[]).map(c=>c.text||"").join("\n")||JSON.stringify(body);
+  }catch(e){ out.textContent="AI review failed: "+e.message; }
+}
+function copyEl(id){ navigator.clipboard.writeText(document.getElementById(id).textContent); toast("Copied"); }
+
+// ---------- wiring ----------
+document.querySelectorAll("#tabs button").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll("#tabs button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); tab=b.dataset.tab; render();
+}));
+document.querySelectorAll("#ccyToggle button").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll("#ccyToggle button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); ccy=b.dataset.ccy; render();
+}));
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
