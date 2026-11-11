@@ -15,17 +15,31 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const security = require("./security");
 
 const app = express();
+// App password on every /api route (except /api/health) + serves /auth.js.
+// The TradingView webhook is NOT under /api: it keeps its own WEBHOOK_SECRET.
+// Runs before the body is read, so strangers can't even upload data.
+security.install(app);
 app.use(express.json({ limit: "2mb" }));
-app.use(express.static(path.join(__dirname, "public")));
+// The page lives in "Public" (capital P). Linux servers like Railway treat
+// "public" as a different folder, so point at the real one.
+app.use(express.static(path.join(__dirname, "Public")));
 
 const PORT = process.env.PORT || 3000;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || null;
 
 // Shared secret for TradingView webhooks. Set WEBHOOK_SECRET in Railway.
 // TradingView alert messages must include {"secret":"<value>", ...}.
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "change-me";
+// No default: if WEBHOOK_SECRET is not set, the webhook refuses everything.
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
+if (!WEBHOOK_SECRET) console.warn("[security] WEBHOOK_SECRET is not set: /webhook/tradingview refuses all signals.");
+
+// The AI call is fixed here on the server. Whatever model or reply length the
+// browser sends is ignored.
+const AI_MODEL = "claude-sonnet-4-6";
+const AI_MAX_TOKENS = 1500;
 
 // ============================================================================
 // PERSISTENCE
@@ -589,7 +603,13 @@ app.post("/api/config", (req, res) => {
 // --------------------------------------------------------------------------
 app.post("/webhook/tradingview", (req, res) => {
   const b = req.body || {};
-  if (b.secret !== WEBHOOK_SECRET) return res.status(401).json({ error: "Bad secret" });
+  if (!WEBHOOK_SECRET) return res.status(503).json({ error: "Webhook disabled: WEBHOOK_SECRET is not set in Railway" });
+  const ip = security.clientIp(req);
+  if (security.isLockedOut(ip)) return res.status(429).json({ error: "Too many bad secrets. Wait 15 minutes." });
+  if (!security.safeEqual(typeof b.secret === "string" ? b.secret : "", WEBHOOK_SECRET)) {
+    security.noteFailure(ip);
+    return res.status(401).json({ error: "Bad secret" });
+  }
   const required = ["mode", "symbol", "side", "entry", "stop"];
   const missing = required.filter((k) => b[k] == null);
   if (missing.length) return res.status(400).json({ error: `Missing fields: ${missing.join(", ")}` });
@@ -738,10 +758,11 @@ app.post("/api/live/deriv/order", (req, res) => {
 // CLAUDE PROXY (optional) — reasoning over the day's setups. The trading
 // pipeline never depends on this; it is analysis-only.
 // ============================================================================
-app.post("/api/claude", async (req, res) => {
+app.post("/api/claude", security.aiLimit, async (req, res) => {
   if (!ANTHROPIC_API_KEY) return res.status(503).json({ error: "ANTHROPIC_API_KEY not set — AI review disabled. Core trading logic is unaffected." });
+  const body = security.lockedClaudeBody(req.body, { model: AI_MODEL, maxTokens: AI_MAX_TOKENS });
+  if (!body) return res.status(400).json({ error: "messages[] is required" });
   try {
-    const { messages, system, max_tokens } = req.body || {};
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -749,12 +770,7 @@ app.post("/api/claude", async (req, res) => {
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6", // whitelisted; ignore any model in the request
-        max_tokens: Math.min(max_tokens || 1500, 4000),
-        ...(system ? { system } : {}),
-        messages: Array.isArray(messages) ? messages : [],
-      }),
+      body: JSON.stringify(body),
     });
     res.status(r.status).json(await r.json());
   } catch (e) {
