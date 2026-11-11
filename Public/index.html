@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="/auth.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TradeForge — Signal Engine + Paper Trading</title>
@@ -376,6 +377,7 @@ function viewWiring(){
   <div class="panel"><h3>2 · Internal engine feed (candles)</h3>
     <div class="hint">POST bar-close candles from any feed (n8n/Make cron → Twelve Data, broker REST, or replayed history for tuning):</div>
     <div class="codeblock" id="cdTpl">POST ${esc(host)}/api/candles
+Header  x-app-password: YOUR_APP_PASSWORD
 {
   "mode": "day",
   "symbol": "XAUUSD",
@@ -384,7 +386,7 @@ function viewWiring(){
   ]
 }</div>
     <button class="btn sm ghost" style="margin-top:8px" onclick="copyEl('cdTpl')">Copy template</button>
-    <div class="hint">Candles also drive stop/target checks on open trades. A bare tick works too: <code>POST /api/price {"symbol":"XAUUSD","price":2319.8}</code></div>
+    <div class="hint">Candles also drive stop/target checks on open trades. A bare tick works too: <code>POST /api/price {"symbol":"XAUUSD","price":2319.8}</code>. Every <code>/api</code> call needs the <code>x-app-password</code> header (your APP_PASSWORD). The TradingView webhook above does not: it uses WEBHOOK_SECRET.</div>
   </div>
 
   <div class="panel"><h3>3 · Manual paper signal (testing)</h3>
